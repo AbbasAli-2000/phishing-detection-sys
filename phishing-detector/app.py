@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, jsonify, render_template, request
 
@@ -23,6 +24,15 @@ def cors(resp):  # lets the Chrome extension call this API
     return resp
 
 
+def ask_ai(url, features):
+    if not openrouter_client.is_configured():
+        return None
+    try:
+        return openrouter_client.analyse(url, features)
+    except openrouter_client.OpenRouterError:
+        return None  # fall back to rules + live checks
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -36,17 +46,14 @@ def scan():
 
     result = detector.analyse(url)
     f = result["features"]
-    pts, bad, good, live_ok = live.check(url, f)
-    verdict = detector.verdict_from_score(min(result["score"] + pts, 100))
+    with ThreadPoolExecutor(1) as pool:
+        ai_job = pool.submit(ask_ai, url, f)  # AI and live checks run at the same time
+        pts, bad, good, live_ok = live.check(url, f)
+        ai = ai_job.result()
 
-    ai = None
-    if openrouter_client.is_configured():
-        try:
-            ai = openrouter_client.analyse(url, f)
-            if RANK[ai["verdict"]] > RANK[verdict]:
-                verdict = ai["verdict"]
-        except openrouter_client.OpenRouterError:
-            pass  # fall back to rules + live checks
+    verdict = detector.verdict_from_score(min(result["score"] + pts, 100))
+    if ai and RANK[ai["verdict"]] > RANK[verdict]:
+        verdict = ai["verdict"]
 
     findings = [{"t": t, "ok": False} for t in bad + result["reasons"]]
     findings += [{"t": t, "ok": True} for t in good + result["positives"]]

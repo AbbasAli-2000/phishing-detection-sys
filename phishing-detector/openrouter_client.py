@@ -14,7 +14,7 @@ import requests
 
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-TIMEOUT = 25
+TIMEOUT = 20
 
 SYSTEM_PROMPT = (
     "You are a phishing URL analyst. You are given a URL and the features "
@@ -35,14 +35,11 @@ def is_configured() -> bool:
 
 
 def _parse_json(text: str) -> dict:
-    cleaned = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    match = re.search(r"\{.*\}", text, re.DOTALL)  # also copes with ```json fences
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if not match:
-            raise OpenRouterError("The model did not return valid JSON")
         return json.loads(match.group(0))
+    except (AttributeError, json.JSONDecodeError):
+        raise OpenRouterError("The model did not return valid JSON")
 
 
 def analyse(url: str, features: dict) -> dict:
@@ -54,7 +51,8 @@ def analyse(url: str, features: dict) -> dict:
     slim = {k: v for k, v in features.items() if k != "host"}
     payload = {
         "model": DEFAULT_MODEL,
-        "max_tokens": 600,
+        "max_tokens": 2000,  # reasoning models spend tokens thinking first
+        "reasoning": {"effort": "low"},  # think less = answer faster
         "temperature": 0,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -71,10 +69,14 @@ def analyse(url: str, features: dict) -> dict:
         "X-Title": "Phishing Website Detection System",
     }
 
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=TIMEOUT)
-    except requests.RequestException as exc:
-        raise OpenRouterError(f"Network error: {exc}") from exc
+    for _ in range(2):
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=TIMEOUT)
+        except requests.RequestException as exc:
+            raise OpenRouterError(f"Network error: {exc}") from exc
+        if response.status_code == 400 and payload.pop("reasoning", None):
+            continue  # this model rejected the speed hint: retry without it
+        break
 
     if response.status_code != 200:
         raise OpenRouterError(f"API error {response.status_code}: {response.text[:200]}")
@@ -83,6 +85,9 @@ def analyse(url: str, features: dict) -> dict:
         content = response.json()["choices"][0]["message"]["content"]
     except (KeyError, IndexError, ValueError) as exc:
         raise OpenRouterError("The API response was in an unexpected format") from exc
+
+    if not content:
+        raise OpenRouterError("The model returned an empty reply")
 
     data = _parse_json(content)
     verdict = str(data.get("verdict", "")).lower()
