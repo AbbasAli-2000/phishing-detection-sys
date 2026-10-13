@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phishing Website Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;700&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+<main class="card">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6l-9-4Z"/><path d="m8.5 12 2.5 2.5L16 9.5"/>
+    </svg>
+  </div>
+  <h1>Phishing Website Detector</h1>
+
+  <form id="form" autocomplete="off">
+    <input id="url" type="text" placeholder="Paste a link, e.g. example.com/login" spellcheck="false" aria-label="Website address">
+    <button id="btn" type="submit">Check</button>
+  </form>
+
+  <p id="error" class="error" hidden></p>
+
+  <section id="result" hidden>
+    <div class="verdict">
+      <span class="icon" id="icon"></span>
+      <div>
+        <strong id="label"></strong>
+        <span id="sub"></span>
+      </div>
+    </div>
+    <ul id="findings"></ul>
+    <div class="chips">
+      <span id="domain"></span>
+      <span id="https"></span>
+      <span id="live" hidden>Offline: live checks skipped</span>
+    </div>
+  </section>
+</main>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
