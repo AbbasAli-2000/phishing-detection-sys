@@ -1,109 +1,96 @@
-const currentUrlEl = document.getElementById("current-url");
-const checkBtn = document.getElementById("check-btn");
-const result = document.getElementById("result");
-const errorBox = document.getElementById("error");
-const engineBadge = document.getElementById("engine-badge");
+const $ = (id) => document.getElementById(id);
 
-const VERDICT_TEXT = {
-  safe: "Looks safe",
-  suspicious: "Suspicious",
-  phishing: "Phishing",
+const TEXT = {
+  safe: ["Safe", "This link looks genuine.", "\u2713"],
+  suspicious: ["Suspicious", "Be careful with this link.", "!"],
+  phishing: ["Phishing", "Do not open this link.", "\u2715"],
 };
 
-const BACKEND_URLS = ["http://127.0.0.1:5000/api/scan", "http://localhost:5000/api/scan"];
-const BACKEND_TIMEOUT_MS = 1500;
+// Optional: if the web app is running locally, use its full scan (live checks + AI).
+const BACKENDS = ["http://127.0.0.1:5000/api/scan", "http://localhost:5000/api/scan"];
+const BACKEND_TIMEOUT_MS = 25000;
 
-let activeUrl = "";
+let tabUrl = "";
 
-init();
-
-async function init() {
+(async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  activeUrl = tab && tab.url ? tab.url : "";
-
-  if (!activeUrl || !/^https?:\/\//i.test(activeUrl)) {
-    currentUrlEl.textContent = "This page can't be scanned (not a regular web page).";
-    checkBtn.disabled = true;
+  tabUrl = (tab && tab.url) || "";
+  if (!/^https?:\/\//i.test(tabUrl)) {
+    $("current").textContent = "This page can't be scanned (not a regular web page).";
+    $("btn").disabled = true;
     return;
   }
+  $("current").textContent = tabUrl;
+  $("btn").addEventListener("click", run);
+})();
 
-  currentUrlEl.textContent = activeUrl;
-  checkBtn.addEventListener("click", runCheck);
-}
-
-async function runCheck() {
-  errorBox.hidden = true;
-  checkBtn.disabled = true;
-  checkBtn.textContent = "Checking…";
-
+async function run() {
+  $("error").hidden = true;
+  $("btn").disabled = true;
+  $("btn").textContent = "Checking\u2026";
   try {
-    const local = analyseUrl(activeUrl);
-    render(local, null);
-
-    const ai = await tryBackend(activeUrl);
-    if (ai) {
-      engineBadge.textContent = "Rules + AI";
-      engineBadge.classList.add("on");
-      render(local, ai);
-    }
+    show(localScan(tabUrl), false);
+    const full = await fullScan(tabUrl);
+    if (full) show(full, true);
   } catch (err) {
-    errorBox.textContent = "Could not analyse this URL.";
-    errorBox.hidden = false;
+    $("error").textContent = "Could not analyse this page.";
+    $("error").hidden = false;
   } finally {
-    checkBtn.disabled = false;
-    checkBtn.textContent = "Check this page";
+    $("btn").disabled = false;
+    $("btn").textContent = "Check this page";
   }
 }
 
-async function tryBackend(url) {
-  for (const endpoint of BACKEND_URLS) {
+// Same result shape as the web app's /api/scan, built from rules.js alone.
+function localScan(url) {
+  const r = analyseUrl(url);
+  const f = r.features;
+  return {
+    verdict: r.verdict,
+    findings: [
+      ...r.reasons.map((t) => ({ t, ok: false })),
+      ...r.positives.map((t) => ({ t, ok: true })),
+    ].slice(0, 5),
+    domain: f.hostIsIp ? f.host : f.registeredDomain,
+    https: f.usesHttps,
+    ai: null,
+  };
+}
+
+async function fullScan(url) {
+  for (const endpoint of BACKENDS) {
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
-      const response = await fetch(endpoint, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
-        signal: controller.signal,
+        signal: AbortSignal.timeout(BACKEND_TIMEOUT_MS),
       });
-      clearTimeout(timer);
-      if (!response.ok) continue;
-      const data = await response.json();
-      return data.ai || null;
+      if (res.ok) return await res.json();
     } catch (err) {
-      // backend not running or unreachable — silently fall back to local rules
+      // server not running: keep the local result
     }
   }
   return null;
 }
 
-function render(local, ai) {
-  result.dataset.verdict = local.verdict;
-  document.getElementById("verdict-label").textContent = VERDICT_TEXT[local.verdict];
-  document.getElementById("score-value").textContent = local.score;
-  document.getElementById("meter-fill").style.width = local.score + "%";
-
-  const findings = document.getElementById("findings");
-  findings.innerHTML = "";
-  local.reasons.forEach((r) => findings.appendChild(item(r, false)));
-  local.positives.forEach((p) => findings.appendChild(item(p, true)));
-
-  const aiBlock = document.getElementById("ai-block");
-  if (ai) {
-    aiBlock.hidden = false;
-    document.getElementById("ai-verdict").textContent =
-      `${VERDICT_TEXT[ai.verdict] || ai.verdict} · confidence ${ai.confidence}%`;
-    document.getElementById("ai-explanation").textContent = ai.explanation || "";
-  } else {
-    aiBlock.hidden = true;
-  }
-
-  result.hidden = false;
-}
-
-function item(text, isGood) {
-  const li = document.createElement("li");
-  li.textContent = text;
-  if (isGood) li.classList.add("good");
-  return li;
+function show(d, full) {
+  const [label, sub, icon] = TEXT[d.verdict];
+  $("result").dataset.v = d.verdict;
+  $("label").textContent = label;
+  $("sub").textContent = sub;
+  $("icon").textContent = icon;
+  $("findings").replaceChildren(
+    ...d.findings.map((f) =>
+      Object.assign(document.createElement("li"), { textContent: f.t, className: f.ok ? "ok" : "" })
+    )
+  );
+  $("domain").textContent = d.domain;
+  $("https").textContent = d.https ? "HTTPS" : "No HTTPS";
+  $("mode").textContent = full ? "Full scan" : "Local rules";
+  $("mode").classList.toggle("full", full);
+  const note = d.ai && d.ai.explanation;
+  $("ai").hidden = !note;
+  if (note) $("ai").replaceChildren(Object.assign(document.createElement("b"), { textContent: "AI: " }), note);
+  $("result").hidden = false;
 }

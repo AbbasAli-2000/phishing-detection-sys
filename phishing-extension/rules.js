@@ -49,7 +49,7 @@ function extractFeatures(rawUrl) {
     hostIsIp: isIpHost(host),
     hasAtSymbol: rawUrl.includes("@"),
     hasPort: !!url.port,
-    subdomainCount: Math.max(labels.length - 2, 0),
+    subdomainCount: isIpHost(host) ? 0 : Math.max(labels.length - 2, 0),
     hyphenCount: (host.match(/-/g) || []).length,
     digitCount: (host.match(/\d/g) || []).length,
     isShortener: SHORTENERS.has(registered),

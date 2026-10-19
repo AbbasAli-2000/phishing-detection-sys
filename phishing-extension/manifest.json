@@ -2,9 +2,10 @@
   "manifest_version": 3,
   "name": "Phishing Website Detector",
   "version": "1.0.0",
-  "description": "Checks the current tab's URL for phishing patterns and shows a risk score.",
+  "description": "Checks the URL of the page you're on for common phishing patterns and shows a risk score, right from the toolbar.",
   "action": {
     "default_popup": "popup.html",
+    "default_title": "Check this page for phishing",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -16,6 +17,6 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["activeTab", "storage"],
+  "permissions": ["activeTab"],
   "host_permissions": ["http://localhost:5000/*", "http://127.0.0.1:5000/*"]
 }
